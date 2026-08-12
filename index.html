@@ -106,12 +106,17 @@ button { font: inherit; }
 .box.fullscreen .box-canvas.has-content { flex: 3 1 0; height: auto; min-height: 200px; }
 .box.fullscreen .box-output { flex: 0 0 auto; max-height: 22vh; }
 
-.fullscreen-btn {
+.box-icon-btn {
   background: none; border: none; color: #7C93A3; width: 28px; height: 28px;
   display: flex; align-items: center; justify-content: center; border-radius: 6px;
   cursor: pointer; touch-action: manipulation; flex-shrink: 0;
 }
-.fullscreen-btn:active { color: #E8A33D; background: rgba(232,163,61,0.12); }
+.box-icon-btn:active { color: #E8A33D; background: rgba(232,163,61,0.12); }
+.box-icon-btn.active { color: #E8A33D; }
+
+.box.code-collapsed .box-code { display: none; }
+
+.run-btn.running { color: #D96C6C; }
 
 @keyframes pulseGlow {
   0% { box-shadow: 0 0 0 0 rgba(232,163,61,0.55), 0 4px 16px rgba(0,0,0,0.35); }
@@ -566,6 +571,19 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
     canvasEl.innerHTML = '';
   }
 
+  // A box counts as "running" once its code has registered an ongoing
+  // requestAnimationFrame loop (see the el._rafId convention above) - a box
+  // that just logs something and returns is never "running" in this sense,
+  // since there's nothing left going for Stoppa to stop.
+  function isRunning(canvasEl) {
+    return !!canvasEl._rafId;
+  }
+
+  function setRunButtonState(runBtn, running) {
+    runBtn.textContent = running ? '\u25A0 Stoppa' : '\u25B6 K\u00F6r';
+    runBtn.classList.toggle('running', running);
+  }
+
   function finalizeRun(box, outputEl, canvasEl, boxEl, output) {
     box.output = output;
     renderOutput(outputEl, output);
@@ -576,6 +594,8 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
     void boxEl.offsetWidth;
     boxEl.classList.add('pulse');
     schedulePersist(box.id);
+    var runBtnEl = boxEl.querySelector('.run-btn');
+    if (runBtnEl) setRunButtonState(runBtnEl, isRunning(canvasEl));
   }
 
   // Runs a box's code as an async function. The code receives `el`, a div it
@@ -632,7 +652,7 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
     var dragging = false, startX, startY, origX, origY;
     header.addEventListener('pointerdown', function (e) {
       if (el.classList.contains('fullscreen')) return;
-      if (e.target.closest('.delete-btn') || e.target.closest('.box-name') || e.target.closest('.fullscreen-btn')) return;
+      if (e.target.closest('.delete-btn') || e.target.closest('.box-name') || e.target.closest('.box-icon-btn')) return;
       dragging = true;
       header.setPointerCapture(e.pointerId);
       startX = e.clientX; startY = e.clientY;
@@ -659,6 +679,7 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
 
   var ICON_BOX_EXPAND = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="8 3 3 3 3 8"/><polyline points="16 3 21 3 21 8"/><polyline points="3 16 3 21 8 21"/><polyline points="21 16 21 21 16 21"/></svg>';
   var ICON_BOX_SHRINK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><polyline points="14 20 14 14 20 14"/><polyline points="10 4 10 10 4 10"/></svg>';
+  var ICON_CODE_TOGGLE = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>';
 
   // A box's normal position lives inside the zoomed/panned #canvas. Position:
   // fixed on a descendant of a transformed ancestor is scoped to that
@@ -680,7 +701,7 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
         boxEl.style.left = box.x + 'px';
         boxEl.style.top = box.y + 'px';
       }
-      var btn = boxEl.querySelector('.fullscreen-btn');
+      var btn = boxEl.querySelector('.fullscreen-toggle-btn');
       if (btn) { btn.innerHTML = ICON_BOX_EXPAND; btn.setAttribute('aria-label', 'Helskärm'); }
     }
     fullscreenBoxId = null;
@@ -699,7 +720,7 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
     boxEl.style.top = '';
     boxEl.style.zIndex = '';
     fullscreenBoxId = box.id;
-    var btn = boxEl.querySelector('.fullscreen-btn');
+    var btn = boxEl.querySelector('.fullscreen-toggle-btn');
     if (btn) { btn.innerHTML = ICON_BOX_SHRINK; btn.setAttribute('aria-label', 'Återställ'); }
   }
 
@@ -785,14 +806,24 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
     delBtn.textContent = '\u00D7';
     delBtn.addEventListener('click', function () { deleteBox(box.id); });
 
+    var codeToggleBtn = document.createElement('button');
+    codeToggleBtn.className = 'box-icon-btn code-toggle-btn';
+    codeToggleBtn.innerHTML = ICON_CODE_TOGGLE;
+    codeToggleBtn.setAttribute('aria-label', 'Dölj/visa kod');
+    codeToggleBtn.addEventListener('click', function () {
+      var collapsed = el.classList.toggle('code-collapsed');
+      codeToggleBtn.classList.toggle('active', collapsed);
+    });
+
     var fsBtn = document.createElement('button');
-    fsBtn.className = 'fullscreen-btn';
+    fsBtn.className = 'box-icon-btn fullscreen-toggle-btn';
     fsBtn.innerHTML = ICON_BOX_EXPAND;
     fsBtn.setAttribute('aria-label', 'Helskärm');
     fsBtn.addEventListener('click', function () { toggleBoxFullscreen(box, el); });
 
     var headerRight = document.createElement('div');
     headerRight.style.cssText = 'display:flex; align-items:center; gap:2px; flex-shrink:0;';
+    headerRight.appendChild(codeToggleBtn);
     headerRight.appendChild(fsBtn);
     headerRight.appendChild(delBtn);
 
@@ -821,7 +852,17 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
     output.className = 'box-output';
     output.id = 'output-' + box.id;
 
-    runBtn.addEventListener('click', function () { runBox(box, output, canvasArea, el); });
+    runBtn.addEventListener('click', function () {
+      if (isRunning(canvasArea)) {
+        if (confirm('Sluta köra "' + boxDisplayName(box) + '"?')) {
+          cleanupCanvas(canvasArea);
+          canvasArea.classList.remove('has-content');
+          setRunButtonState(runBtn, false);
+        }
+      } else {
+        runBox(box, output, canvasArea, el);
+      }
+    });
 
     el.appendChild(header);
     el.appendChild(textarea);
