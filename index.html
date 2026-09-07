@@ -1240,5 +1240,386 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
   init();
 })();
 </script>
+  <script>
+(function () {
+  "use strict";
+
+  var STORAGE_KEY = 'home-chat';
+  var API_KEY = 'DIN_NYCKEL_HÄR';
+
+  var style = document.createElement('style');
+  style.textContent = `
+    #home-ai-btn {
+      position: fixed; left: 16px; bottom: 16px; z-index: 1200;
+      width: 52px; height: 52px; border-radius: 50%;
+      background: #E8A33D; border: none; color: #0F1720;
+      font-size: 22px; cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      display: flex; align-items: center; justify-content: center;
+    }
+    #home-ai-btn:active { background: #C6842A; }
+    #home-ai-panel {
+      display: none; position: fixed; left: 0; right: 0; bottom: 0; z-index: 1250;
+      height: min(60vh, 520px); background: #16212B; border-top: 1px solid #2A3B47;
+      border-radius: 16px 16px 0 0; flex-direction: column;
+      box-shadow: 0 -4px 24px rgba(0,0,0,0.5);
+      font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #DCE6EC;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    #home-ai-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 12px 14px; border-bottom: 1px solid #2A3B47; flex-shrink: 0;
+    }
+    #home-ai-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; }
+    #home-ai-close { background: none; border: none; color: #7C93A3; font-size: 20px; cursor: pointer; }
+    #home-ai-log { flex: 1; overflow-y: auto; padding: 10px 14px; -webkit-overflow-scrolling: touch; }
+    #home-ai-log div { margin-bottom: 8px; white-space: pre-wrap; word-break: break-word; }
+    #home-ai-row { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid #2A3B47; flex-shrink: 0; }
+    #home-ai-input {
+      flex: 1; background: #0F1720; color: #DCE6EC; border: 1px solid #2A3B47;
+      border-radius: 8px; padding: 10px; font-family: inherit; font-size: 13px;
+    }
+    #home-ai-send {
+      background: #E8A33D; color: #0F1720; border: none; border-radius: 8px;
+      padding: 10px 14px; font-weight: 600; cursor: pointer; font-family: 'Space Grotesk', sans-serif;
+    }
+  `;
+  document.head.appendChild(style);
+
+  var btn = document.createElement('button');
+  btn.id = 'home-ai-btn';
+  btn.setAttribute('aria-label', 'Öppna AI-chatt');
+  btn.textContent = '💬';
+  document.body.appendChild(btn);
+
+  var panel = document.createElement('div');
+  panel.id = 'home-ai-panel';
+  panel.innerHTML =
+    '<div id="home-ai-header"><span id="home-ai-title">AI-ASSISTENT</span><button id="home-ai-close" aria-label="Stäng">&times;</button></div>' +
+    '<div id="home-ai-log"></div>' +
+    '<div id="home-ai-row"><input id="home-ai-input" placeholder="Skriv ett kommando..."/><button id="home-ai-send">Skicka</button></div>';
+  document.body.appendChild(panel);
+
+  var log = panel.querySelector('#home-ai-log');
+  var input = panel.querySelector('#home-ai-input');
+  var sendBtn = panel.querySelector('#home-ai-send');
+
+  btn.addEventListener('click', function () { panel.style.display = 'flex'; input.focus(); });
+  panel.querySelector('#home-ai-close').addEventListener('click', function () { panel.style.display = 'none'; });
+
+  function addMsg(role, text) {
+    var m = document.createElement('div');
+    m.style.color = role === 'user' ? '#8FBC94' : (role === 'system' ? '#7C93A3' : '#DCE6EC');
+    m.textContent = (role === 'user' ? '> ' : '') + text;
+    log.appendChild(m);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function resolveId(idOrName) {
+    var list = window.KanvasAPI.listBoxes();
+    var byId = list.filter(function (b) { return b.id === idOrName; })[0];
+    if (byId) return byId.id;
+    var lower = String(idOrName).toLowerCase();
+    var byName = list.filter(function (b) { return b.name.toLowerCase() === lower; })[0];
+    return byName ? byName.id : idOrName;
+  }
+
+  var tools = [
+    { name: 'list_boxes', description: 'Lista alla rutor med id och namn.', input_schema: { type: 'object', properties: {} } },
+    { name: 'get_box_code', description: 'Hämta koden i en ruta.', input_schema: { type: 'object', properties: { idOrName: { type: 'string' } }, required: ['idOrName'] } },
+    { name: 'get_box_output', description: 'Hämta senaste utskrift/fel från en ruta.', input_schema: { type: 'object', properties: { idOrName: { type: 'string' } }, required: ['idOrName'] } },
+    { name: 'set_box_code', description: 'Skriv över koden i en befintlig ruta.', input_schema: { type: 'object', properties: { idOrName: { type: 'string' }, code: { type: 'string' } }, required: ['idOrName','code'] } },
+    { name: 'add_box', description: 'Skapa en ny ruta med kod och valfritt namn.', input_schema: { type: 'object', properties: { code: { type: 'string' }, name: { type: 'string' } }, required: ['code'] } },
+    { name: 'run_box', description: 'Kör koden i en ruta.', input_schema: { type: 'object', properties: { idOrName: { type: 'string' } }, required: ['idOrName'] } },
+    { name: 'delete_box', description: 'Ta bort en ruta.', input_schema: { type: 'object', properties: { idOrName: { type: 'string' } }, required: ['idOrName'] } },
+    { name: 'rename_box', description: 'Byt namn på en ruta.', input_schema: { type: 'object', properties: { idOrName: { type: 'string' }, newName: { type: 'string' } }, required: ['idOrName','newName'] } }
+  ];
+
+  function runTool(name, inp) {
+    try {
+      switch (name) {
+        case 'list_boxes': return { ok: true, boxes: window.KanvasAPI.listBoxes() };
+        case 'get_box_code': return { ok: true, code: window.KanvasAPI.getBoxCode(inp.idOrName) };
+        case 'get_box_output': {
+          var outEl = document.getElementById('output-' + resolveId(inp.idOrName));
+          return { ok: true, output: outEl ? outEl.innerText : null };
+        }
+        case 'set_box_code': return { ok: window.KanvasAPI.setBoxCode(inp.idOrName, inp.code) };
+        case 'add_box': return { ok: true, id: window.KanvasAPI.addBox(inp.code, inp.name) };
+        case 'run_box': return { ok: window.KanvasAPI.runBoxById(inp.idOrName) };
+        case 'delete_box': return { ok: window.KanvasAPI.deleteBoxById(inp.idOrName) };
+        case 'rename_box': return { ok: window.KanvasAPI.renameBox(inp.idOrName, inp.newName) };
+        default: return { ok: false, error: 'Okänt verktyg: ' + name };
+      }
+    } catch (e) { return { ok: false, error: e.message }; }
+  }
+
+  var messages = [];
+  var systemPrompt = "Du är en AI-assistent inbyggd i appen Kanvas, tillgänglig från en global chatt på hemskärmen (inte knuten till någon specifik ruta). Du styr appen via verktygen: skapa, läsa, ändra, köra, döpa om och ta bort rutor (boxes), samt läsa deras senaste output/fel. Varje ruta innehåller JS-kod som körs som en async-funktion med parametern 'el'. VIKTIGT - automatisk felrättning: när du skapar en ny ruta eller ändrar kod i en befintlig, ska du ALLTID direkt efter: 1) köra rutan, 2) läsa resultatet, 3) om det blev fel, rätta koden och upprepa, i upp till 4 försök, utan att fråga om lov mellan varje försök. Berätta bara för användaren när det är klart eller om du gett upp. Svara kort.";
+
+  function saveHistory() {
+    try { window.KanvasAPI.storageSet(STORAGE_KEY, JSON.stringify(messages.slice(-40))); } catch (e) {}
+  }
+
+  async function sendToClaude() {
+    var res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': API_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1500, system: systemPrompt, messages: messages, tools: tools })
+    });
+    return res.json();
+  }
+
+  async function handleTurn() {
+    var guard = 0;
+    while (guard++ < 10) {
+      var data = await sendToClaude();
+      if (!data || !data.content) { addMsg('system', 'Fel: kunde inte tolka svaret.'); return; }
+      var toolUses = [], textParts = [];
+      data.content.forEach(function (b) {
+        if (b.type === 'text') textParts.push(b.text);
+        if (b.type === 'tool_use') toolUses.push(b);
+      });
+      if (textParts.length) addMsg('ai', textParts.join('\n'));
+      messages.push({ role: 'assistant', content: data.content });
+      saveHistory();
+      if (toolUses.length === 0) return;
+      var toolResults = toolUses.map(function (tu) {
+        var result = runTool(tu.name, tu.input || {});
+        addMsg('system', '\u2192 ' + tu.name + '(' + JSON.stringify(tu.input) + ') = ' + JSON.stringify(result));
+        return { type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify(result) };
+      });
+      messages.push({ role: 'user', content: toolResults });
+      saveHistory();
+    }
+    addMsg('system', 'Avbröt efter för många steg.');
+  }
+
+  function send() {
+    var text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    addMsg('user', text);
+    messages.push({ role: 'user', content: text });
+    saveHistory();
+    sendBtn.disabled = true;
+    handleTurn().catch(function (e) { addMsg('system', 'Fel: ' + e.message); })
+      .then(function () { sendBtn.disabled = false; });
+  }
+
+  sendBtn.addEventListener('click', send);
+  input.addEventListener('keydown', function (e) { if (e.key === 'Enter') send(); });
+
+  window.KanvasAPI.storageGet(STORAGE_KEY).then(function (r) {
+    if (r && r.value) {
+      try {
+        messages = JSON.parse(r.value);
+        messages.forEach(function (m) {
+          if (m.role === 'user' && typeof m.content === 'string') addMsg('user', m.content);
+          if (m.role === 'assistant') {
+            var texts = (m.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; });
+            if (texts.length) addMsg('ai', texts.join('\n'));
+          }
+        });
+      } catch (e) {}
+    }
+  });
+})();
+</script>
+<script>
+(function () {
+  "use strict";
+
+  var STORAGE_KEY = 'home-chat';
+  var API_KEY = sk-ant-api03-f1VSiscqkU-pbJ66kQ15BGxm6hGvh40CS861sd4-TP2DPpl_4QiDVJqHN7CPkfNJoqMzaoVuqMOx23TpUrLOdg-welgdwAA;
+
+  var style = document.createElement('style');
+  style.textContent = `
+    #home-ai-btn {
+      position: fixed; left: 16px; bottom: 16px; z-index: 1200;
+      width: 52px; height: 52px; border-radius: 50%;
+      background: #E8A33D; border: none; color: #0F1720;
+      font-size: 22px; cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      display: flex; align-items: center; justify-content: center;
+    }
+    #home-ai-btn:active { background: #C6842A; }
+    #home-ai-panel {
+      display: none; position: fixed; left: 0; right: 0; bottom: 0; z-index: 1250;
+      height: min(60vh, 520px); background: #16212B; border-top: 1px solid #2A3B47;
+      border-radius: 16px 16px 0 0; flex-direction: column;
+      box-shadow: 0 -4px 24px rgba(0,0,0,0.5);
+      font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #DCE6EC;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    #home-ai-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 12px 14px; border-bottom: 1px solid #2A3B47; flex-shrink: 0;
+    }
+    #home-ai-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; }
+    #home-ai-close { background: none; border: none; color: #7C93A3; font-size: 20px; cursor: pointer; }
+    #home-ai-log { flex: 1; overflow-y: auto; padding: 10px 14px; -webkit-overflow-scrolling: touch; }
+    #home-ai-log div { margin-bottom: 8px; white-space: pre-wrap; word-break: break-word; }
+    #home-ai-row { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid #2A3B47; flex-shrink: 0; }
+    #home-ai-input {
+      flex: 1; background: #0F1720; color: #DCE6EC; border: 1px solid #2A3B47;
+      border-radius: 8px; padding: 10px; font-family: inherit; font-size: 13px;
+    }
+    #home-ai-send {
+      background: #E8A33D; color: #0F1720; border: none; border-radius: 8px;
+      padding: 10px 14px; font-weight: 600; cursor: pointer; font-family: 'Space Grotesk', sans-serif;
+    }
+  `;
+  document.head.appendChild(style);
+
+  var btn = document.createElement('button');
+  btn.id = 'home-ai-btn';
+  btn.setAttribute('aria-label', 'Öppna AI-chatt');
+  btn.textContent = '💬';
+  document.body.appendChild(btn);
+
+  var panel = document.createElement('div');
+  panel.id = 'home-ai-panel';
+  panel.innerHTML =
+    '<div id="home-ai-header"><span id="home-ai-title">AI-ASSISTENT</span><button id="home-ai-close" aria-label="Stäng">&times;</button></div>' +
+    '<div id="home-ai-log"></div>' +
+    '<div id="home-ai-row"><input id="home-ai-input" placeholder="Skriv ett kommando..."/><button id="home-ai-send">Skicka</button></div>';
+  document.body.appendChild(panel);
+
+  var log = panel.querySelector('#home-ai-log');
+  var input = panel.querySelector('#home-ai-input');
+  var sendBtn = panel.querySelector('#home-ai-send');
+
+  btn.addEventListener('click', function () { panel.style.display = 'flex'; input.focus(); });
+  panel.querySelector('#home-ai-close').addEventListener('click', function () { panel.style.display = 'none'; });
+
+  function addMsg(role, text) {
+    var m = document.createElement('div');
+    m.style.color = role === 'user' ? '#8FBC94' : (role === 'system' ? '#7C93A3' : '#DCE6EC');
+    m.textContent = (role === 'user' ? '> ' : '') + text;
+    log.appendChild(m);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function resolveId(idOrName) {
+    var list = window.KanvasAPI.listBoxes();
+    var byId = list.filter(function (b) { return b.id === idOrName; })[0];
+    if (byId) return byId.id;
+    var lower = String(idOrName).toLowerCase();
+    var byName = list.filter(function (b) { return b.name.toLowerCase() === lower; })[0];
+    return byName ? byName.id : idOrName;
+  }
+
+  var tools = [
+    { name: 'list_boxes', description: 'Lista alla rutor med id och namn.', input_schema: { type: 'object', properties: {} } },
+    { name: 'get_box_code', description: 'Hämta koden i en ruta.', input_schema: { type: 'object', properties: { idOrName: { type: 'string' } }, required: ['idOrName'] } },
+    { name: 'get_box_output', description: 'Hämta senaste utskrift/fel från en ruta.', input_schema: { type: 'object', properties: { idOrName: { type: 'string' } }, required: ['idOrName'] } },
+    { name: 'set_box_code', description: 'Skriv över koden i en befintlig ruta.', input_schema: { type: 'object', properties: { idOrName: { type: 'string' }, code: { type: 'string' } }, required: ['idOrName','code'] } },
+    { name: 'add_box', description: 'Skapa en ny ruta med kod och valfritt namn.', input_schema: { type: 'object', properties: { code: { type: 'string' }, name: { type: 'string' } }, required: ['code'] } },
+    { name: 'run_box', description: 'Kör koden i en ruta.', input_schema: { type: 'object', properties: { idOrName: { type: 'string' } }, required: ['idOrName'] } },
+    { name: 'delete_box', description: 'Ta bort en ruta.', input_schema: { type: 'object', properties: { idOrName: { type: 'string' } }, required: ['idOrName'] } },
+    { name: 'rename_box', description: 'Byt namn på en ruta.', input_schema: { type: 'object', properties: { idOrName: { type: 'string' }, newName: { type: 'string' } }, required: ['idOrName','newName'] } }
+  ];
+
+  function runTool(name, inp) {
+    try {
+      switch (name) {
+        case 'list_boxes': return { ok: true, boxes: window.KanvasAPI.listBoxes() };
+        case 'get_box_code': return { ok: true, code: window.KanvasAPI.getBoxCode(inp.idOrName) };
+        case 'get_box_output': {
+          var outEl = document.getElementById('output-' + resolveId(inp.idOrName));
+          return { ok: true, output: outEl ? outEl.innerText : null };
+        }
+        case 'set_box_code': return { ok: window.KanvasAPI.setBoxCode(inp.idOrName, inp.code) };
+        case 'add_box': return { ok: true, id: window.KanvasAPI.addBox(inp.code, inp.name) };
+        case 'run_box': return { ok: window.KanvasAPI.runBoxById(inp.idOrName) };
+        case 'delete_box': return { ok: window.KanvasAPI.deleteBoxById(inp.idOrName) };
+        case 'rename_box': return { ok: window.KanvasAPI.renameBox(inp.idOrName, inp.newName) };
+        default: return { ok: false, error: 'Okänt verktyg: ' + name };
+      }
+    } catch (e) { return { ok: false, error: e.message }; }
+  }
+
+  var messages = [];
+  var systemPrompt = "Du är en AI-assistent inbyggd i appen Kanvas, tillgänglig från en global chatt på hemskärmen (inte knuten till någon specifik ruta). Du styr appen via verktygen: skapa, läsa, ändra, köra, döpa om och ta bort rutor (boxes), samt läsa deras senaste output/fel. Varje ruta innehåller JS-kod som körs som en async-funktion med parametern 'el'. VIKTIGT - automatisk felrättning: när du skapar en ny ruta eller ändrar kod i en befintlig, ska du ALLTID direkt efter: 1) köra rutan, 2) läsa resultatet, 3) om det blev fel, rätta koden och upprepa, i upp till 4 försök, utan att fråga om lov mellan varje försök. Berätta bara för användaren när det är klart eller om du gett upp. Svara kort.";
+
+  function saveHistory() {
+    try { window.KanvasAPI.storageSet(STORAGE_KEY, JSON.stringify(messages.slice(-40))); } catch (e) {}
+  }
+
+  async function sendToClaude() {
+    var res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': API_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1500, system: systemPrompt, messages: messages, tools: tools })
+    });
+    return res.json();
+  }
+
+  async function handleTurn() {
+    var guard = 0;
+    while (guard++ < 10) {
+      var data = await sendToClaude();
+      if (!data || !data.content) { addMsg('system', 'Fel: kunde inte tolka svaret.'); return; }
+      var toolUses = [], textParts = [];
+      data.content.forEach(function (b) {
+        if (b.type === 'text') textParts.push(b.text);
+        if (b.type === 'tool_use') toolUses.push(b);
+      });
+      if (textParts.length) addMsg('ai', textParts.join('\n'));
+      messages.push({ role: 'assistant', content: data.content });
+      saveHistory();
+      if (toolUses.length === 0) return;
+      var toolResults = toolUses.map(function (tu) {
+        var result = runTool(tu.name, tu.input || {});
+        addMsg('system', '\u2192 ' + tu.name + '(' + JSON.stringify(tu.input) + ') = ' + JSON.stringify(result));
+        return { type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify(result) };
+      });
+      messages.push({ role: 'user', content: toolResults });
+      saveHistory();
+    }
+    addMsg('system', 'Avbröt efter för många steg.');
+  }
+
+  function send() {
+    var text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    addMsg('user', text);
+    messages.push({ role: 'user', content: text });
+    saveHistory();
+    sendBtn.disabled = true;
+    handleTurn().catch(function (e) { addMsg('system', 'Fel: ' + e.message); })
+      .then(function () { sendBtn.disabled = false; });
+  }
+
+  sendBtn.addEventListener('click', send);
+  input.addEventListener('keydown', function (e) { if (e.key === 'Enter') send(); });
+
+  window.KanvasAPI.storageGet(STORAGE_KEY).then(function (r) {
+    if (r && r.value) {
+      try {
+        messages = JSON.parse(r.value);
+        messages.forEach(function (m) {
+          if (m.role === 'user' && typeof m.content === 'string') addMsg('user', m.content);
+          if (m.role === 'assistant') {
+            var texts = (m.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; });
+            if (texts.length) addMsg('ai', texts.join('\n'));
+          }
+        });
+      } catch (e) {}
+    }
+  });
+})();
+</script>
+
 </body>
 </html>
