@@ -1431,4 +1431,191 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
 })();
 </script>
 </body>
+  <script>
+(function(){
+"use strict";
+var STORAGE_KEY='home-chat';
+var KEY_STORAGE='kanvas-ai-key-enc';
+var PIN_HASH_KEY='kanvas-pin-hash';
+var SESSION_KEY=null;
+var MEMORY_BOX='⚡ Einar Minne';
+
+function xorEnc(t,p){
+  var r='';
+  for(var i=0;i<t.length;i++){
+    r+=String.fromCharCode(t.charCodeAt(i)^p.charCodeAt(i%p.length));
+  }
+  return btoa(r);
+}
+
+function xorDec(e,p){
+  var t=atob(e),r='';
+  for(var i=0;i<t.length;i++){
+    r+=String.fromCharCode(t.charCodeAt(i)^p.charCodeAt(i%p.length));
+  }
+  return r;
+}
+
+function hashPin(p){
+  var h=0;
+  for(var i=0;i<p.length;i++){
+    h=((h<<5)-h)+p.charCodeAt(i);
+    h|=0;
+  }
+  return h.toString(36);
+}
+
+async function getApiKey(){
+  if(SESSION_KEY)return SESSION_KEY;
+  var e=localStorage.getItem(KEY_STORAGE);
+  var h=localStorage.getItem(PIN_HASH_KEY);
+  if(!e||!h){
+    var k=prompt('🔑 Klistra in din Claude API-nyckel:');
+    if(!k||!k.trim())return null;
+    var p=prompt('🔒 Välj PIN (minst 4 tecken):');
+    if(!p||p.length<4){alert('PIN måste vara minst 4 tecken.');return null;}
+    var c=prompt('🔒 Bekräfta PIN:');
+    if(p!==c){alert('PIN matchar inte.');return null;}
+
+    localStorage.setItem(KEY_STORAGE,xorEnc(k.trim(),p));
+    localStorage.setItem(PIN_HASH_KEY,hashPin(p));
+    SESSION_KEY=k.trim();
+    return SESSION_KEY;
+  }
+  var p=prompt('🔒 Ange PIN:');
+  if(!p)return null;
+  if(hashPin(p)!==h){alert('❌ Fel PIN.');return null;}
+  SESSION_KEY=xorDec(e,p);
+  return SESSION_KEY;
+}
+
+var st=document.createElement('style');
+st.textContent='#home-ai-btn{position:fixed;left:16px;bottom:16px;z-index:1200;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;color:#fff;font-size:22px;cursor:pointer}#home-ai-panel{display:none;position:fixed;left:0;right:0;bottom:0;z-index:1250;height:60vh;background:rgba(22,33,43,0.97);border-radius:20px 20px 0 0;flex-direction:column;font-family:monospace;color:#DCE6EC}#home-ai-header{display:flex;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #333}#home-ai-title{font-weight:700;color:#8b5cf6}#home-ai-close{background:none;border:none;color:#888;font-size:22px;cursor:pointer}#home-ai-log{flex:1;overflow-y:auto;padding:12px}.ai-msg{margin:8px 0;padding:10px;border-radius:10px;max-width:85%}.ai-msg.user{background:#334;margin-left:auto}.ai-msg.einar{background:#223;border-left:3px solid #8b5cf6}.ai-msg.system{color:#666;font-size:11px}#home-ai-row{display:flex;gap:10px;padding:12px}#home-ai-input{flex:1;background:#1a1a2e;color:#fff;border:1px solid #444;border-radius:10px;padding:12px}#home-ai-send{background:#6366f1;color:#fff;border:none;border-radius:10px;padding:12px 18px;cursor:pointer}';
+document.head.appendChild(st);
+
+var btn=document.createElement('button');
+btn.id='home-ai-btn';
+btn.textContent='⚡';
+document.body.appendChild(btn);
+
+var panel=document.createElement('div');
+panel.id='home-ai-panel';
+panel.innerHTML='<div id="home-ai-header"><span id="home-ai-title">⚡ EINAR</span><button id="home-ai-close">x</button></div><div id="home-ai-log"></div><div id="home-ai-row"><input id="home-ai-input" placeholder="Snacka med Einar..."/><button id="home-ai-send">➤</button></div>';
+document.body.appendChild(panel);
+
+var log=panel.querySelector('#home-ai-log');
+var input=panel.querySelector('#home-ai-input');
+var sendBtn=panel.querySelector('#home-ai-send');
+
+btn.addEventListener('click',async function(){
+  var k=await getApiKey();
+  if(!k)return;
+  panel.style.display='flex';
+  input.focus();
+});
+
+panel.querySelector('#home-ai-close').addEventListener('click',function(){
+  panel.style.display='none';
+});
+
+function addMsg(r,t){
+  var m=document.createElement('div');
+  m.className='ai-msg '+r;
+  m.textContent=t;
+  log.appendChild(m);
+  log.scrollTop=log.scrollHeight;
+}
+
+function getMemBox(){
+  var l=window.KanvasAPI.listBoxes();
+  return l.find(function(b){return b.name===MEMORY_BOX;});
+}
+
+function ensureMemBox(){
+  if(!getMemBox())window.KanvasAPI.addBox('// Einars minne\n{}',MEMORY_BOX);
+}
+
+var tools=[
+  {name:'list_boxes',description:'Lista rutor',input_schema:{type:'object',properties:{}}},
+  {name:'get_box_code',description:'Hämta kod',input_schema:{type:'object',properties:{idOrName:{type:'string'}},required:['idOrName']}},
+  {name:'set_box_code',description:'Ändra kod',input_schema:{type:'object',properties:{idOrName:{type:'string'},code:{type:'string'}},required:['idOrName','code']}},
+  {name:'add_box',description:'Skapa ruta',input_schema:{type:'object',properties:{code:{type:'string'},name:{type:'string'}},required:['code']}},
+  {name:'run_box',description:'Kör ruta',input_schema:{type:'object',properties:{idOrName:{type:'string'}},required:['idOrName']}},
+  {name:'delete_box',description:'Ta bort ruta',input_schema:{type:'object',properties:{idOrName:{type:'string'}},required:['idOrName']}},
+  {name:'read_memory',description:'Läs minne',input_schema:{type:'object',properties:{}}},
+  {name:'write_memory',description:'Skriv minne',input_schema:{type:'object',properties:{content:{type:'string'}},required:['content']}}
+];
+
+function runTool(name,inp){
+  try{
+    if(name==='list_boxes')return{ok:true,boxes:window.KanvasAPI.listBoxes()};
+    if(name==='get_box_code')return{ok:true,code:window.KanvasAPI.getBoxCode(inp.idOrName)};
+    if(name==='set_box_code')return{ok:window.KanvasAPI.setBoxCode(inp.idOrName,inp.code)};
+    if(name==='add_box')return{ok:true,id:window.KanvasAPI.addBox(inp.code,inp.name)};
+    if(name==='run_box')return{ok:window.KanvasAPI.runBoxById(inp.idOrName)};
+    if(name==='delete_box')return{ok:window.KanvasAPI.deleteBoxById(inp.idOrName)};
+    if(name==='read_memory'){var mb=getMemBox();return{ok:true,mem:mb?window.KanvasAPI.getBoxCode(mb.id):null};}
+    if(name==='write_memory'){ensureMemBox();var mb=getMemBox();return{ok:window.KanvasAPI.setBoxCode(mb.id,inp.content)};}
+    return{ok:false,error:'Okänt'};
+  }catch(e){return{ok:false,error:e.message};}
+}
+
+var messages=[];
+var sysPrompt="Du är Einar, en vän i Kanvas. Avslappnad, ärlig, uppmuntrande. Läs minne vid start med read_memory. Spara viktigt med write_memory. Svara kort.";
+
+async function sendToClaude(){
+  var key=await getApiKey();
+  if(!key)throw new Error('Ingen nyckel');
+  var res=await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1024,system:sysPrompt,messages:messages,tools:tools})
+  });
+  return res.json();
+}
+
+async function handleTurn(){
+  var guard=0;
+  while(guard++<8){
+    var data=await sendToClaude();
+    if(!data||!data.content){addMsg('system','Fel');return;}
+    var tus=[],txt=[];
+    data.content.forEach(function(b){if(b.type==='text')txt.push(b.text);if(b.type==='tool_use')tus.push(b);});
+
+    if(txt.length)addMsg('einar',txt.join('\n'));
+
+    messages.push({role:'assistant',content:data.content});
+    saveChat();
+    if(!tus.length)return;
+    var results=tus.map(function(tu){
+      var r=runTool(tu.name,tu.input||{});
+      addMsg('system','→ '+tu.name);
+      return{type:'tool_result',tool_use_id:tu.id,content:JSON.stringify(r)};
+    });
+
+    messages.push({role:'user',content:results});
+    saveChat();
+  }
+}
+
+function send(){
+  var t=input.value.trim();
+  if(!t)return;
+  input.value='';
+  addMsg('user',t);
+  messages.push({role:'user',content:t});
+  saveChat();
+  sendBtn.disabled=true;
+  handleTurn().catch(function(e){addMsg('system','Fel: '+e.message);}).then(function(){sendBtn.disabled=false;});
+}
+
+function saveChat(){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(messages.slice(-30)));}catch(e){}}
+function loadChat(){try{var s=localStorage.getItem(STORAGE_KEY);if(s)messages=JSON.parse(s);}catch(e){}}
+
+sendBtn.addEventListener('click',send);
+input.addEventListener('keydown',function(e){if(e.key==='Enter')send();});
+loadChat();
+})();
+</script>
+
 </html>
