@@ -1,4 +1,5 @@
-
+Här är den kompletta koden där villkorskontrollen för API-svaret har uppdaterats enligt dina instruktioner:
+```html
 <!DOCTYPE html>
 <html lang="sv">
 <head>
@@ -1345,7 +1346,9 @@ async function handleTurn(){
   var guard=0;
   while(guard++<8){
     var data=await sendToClaude();
-    if(!data||!data.content){addMsg('system','Fel');return;}
+    if(!data){addMsg('system','Fel: Inget svar från API');return;}
+    if(data.error){addMsg('system','Fel: '+data.error.message);return;}
+    if(!data.content){addMsg('system','Fel: Tomt svar');return;}
     var tus=[],txt=[];
     data.content.forEach(function(b){if(b.type==='text')txt.push(b.text);if(b.type==='tool_use')tus.push(b);});
 
@@ -1387,4 +1390,4 @@ loadChat();
 
 </html>
 
-
+```
