@@ -1,3 +1,5 @@
+För att åtgärda krocken behöver det första AI-skriptet tas bort ur filen. Här är den uppdaterade koden där det första skriptblocket har tagits bort helt, så att endast huvudapplikationen (Kanvas) och **Einar** finns kvar utan kollisioner:
+```html
 <!DOCTYPE html>
 <html lang="sv">
 <head>
@@ -230,8 +232,6 @@ button { font: inherit; }
 }
 textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offset: 1px; }
 
-/* iPad/surfplatta (>=768px bred viewport): bredare rutor och mer luft.
-   Telefon (under 768px) är helt opåverkad av detta block. */
 @media (min-width: 768px) {
   .box { width: min(440px, 45vw); }
   .box-name { max-width: 220px; }
@@ -316,8 +316,6 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
   var sizerEl = document.getElementById('canvas-sizer');
   var scrollEl = document.getElementById('canvas-scroll');
 
-  // Works inside a Claude artifact (window.storage) and falls back to
-  // localStorage automatically when this file is hosted standalone.
   var storageAdapter = {
     hasNative: function () {
       return typeof window.storage === 'object' && window.storage !== null
@@ -377,8 +375,6 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
     return 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   }
 
-  // Zooms toward a specific point on screen (defaults to viewport center),
-  // keeping the logical canvas point under that screen point fixed in place.
   function applyZoom(newZoom, centerX, centerY) {
     newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom));
     if (centerX === undefined || centerY === undefined) {
@@ -397,8 +393,6 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
     if (label) label.textContent = Math.round(zoom * 100) + '%';
   }
 
-  // Two-finger pinch to zoom, tracked on the scrollable canvas viewport so it
-  // works no matter where on the (possibly very large) canvas it starts.
   var activePointers = {};
   var pinchStartDist = null;
   var pinchStartZoom = null;
@@ -412,7 +406,7 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
   }
 
   scrollEl.addEventListener('pointerdown', function (e) {
-    if (e.target.closest('.box')) return; // let the box (textarea, 3D view, ...) own its own gestures
+    if (e.target.closest('.box')) return;
     activePointers[e.pointerId] = { x: e.clientX, y: e.clientY };
     var keys = Object.keys(activePointers);
     if (keys.length === 2) {
@@ -538,8 +532,6 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
     }
   }
 
-  // Loads a classic (non-module) script once, for boxes that want a UMD-style
-  // CDN library instead of an ES module. Available to box code as loadScript(url).
   window.loadScript = function (src) {
     if (document.querySelector('script[data-kanvas-src="' + src + '"]')) {
       return Promise.resolve();
@@ -554,9 +546,6 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
     });
   };
 
-  // Stops any animation loop and disposers registered by a previous run of
-  // this box, then empties its visual area. Called before every re-run and
-  // on delete, so boxes doing WebGL/canvas animation don't pile up.
   function cleanupCanvas(canvasEl) {
     if (canvasEl._rafId) {
       cancelAnimationFrame(canvasEl._rafId);
@@ -564,17 +553,13 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
     }
     if (canvasEl._disposers) {
       canvasEl._disposers.forEach(function (fn) {
-        try { fn(); } catch (e) { /* ignore cleanup errors */ }
+        try { fn(); } catch (e) {}
       });
     }
     canvasEl._disposers = [];
     canvasEl.innerHTML = '';
   }
 
-  // A box counts as "running" once its code has registered an ongoing
-  // requestAnimationFrame loop (see the el._rafId convention above) - a box
-  // that just logs something and returns is never "running" in this sense,
-  // since there's nothing left going for Stoppa to stop.
   function isRunning(canvasEl) {
     return !!canvasEl._rafId;
   }
@@ -598,15 +583,6 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
     if (runBtnEl) setRunButtonState(runBtnEl, isRunning(canvasEl));
   }
 
-  // Runs a box's code as an async function. The code receives `el`, a div it
-  // can render into (append a <canvas>, a Three.js renderer, etc.) — anything
-  // left running (requestAnimationFrame, WebGL) should be registered via
-  // el._rafId and el._disposers.push(fn) so Kanvas can clean it up later.
-  // console.log calls are captured for the whole async run, including
-  // anything logged after an `await`.
-  // Code pasted in from a chat or notes app often arrives with typographic
-  // quotes/spaces instead of plain ASCII ones, which breaks the JS parser
-  // with exactly "Invalid or unexpected token". Normalize before running.
   function sanitizeCode(code) {
     return code
       .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
@@ -681,11 +657,6 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
   var ICON_BOX_SHRINK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><polyline points="14 20 14 14 20 14"/><polyline points="10 4 10 10 4 10"/></svg>';
   var ICON_CODE_TOGGLE = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>';
 
-  // A box's normal position lives inside the zoomed/panned #canvas. Position:
-  // fixed on a descendant of a transformed ancestor is scoped to that
-  // ancestor, not the real viewport - so to get a true fullscreen box we
-  // temporarily move it out to the document body, then put it back exactly
-  // where it was (box.x/box.y are never touched, so nothing is lost).
   function exitBoxFullscreen() {
     if (!fullscreenBoxId) return;
     var box = findBox(fullscreenBoxId);
@@ -712,10 +683,6 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
     box._returnNext = boxEl.nextSibling;
     document.body.appendChild(boxEl);
     boxEl.classList.add('fullscreen');
-    // The box carries inline left/top/z-index from its position on the
-    // canvas, and inline styles always beat CSS classes - without clearing
-    // them here, the .fullscreen rule's top:0/left:0 gets silently
-    // overridden and the box renders far outside the visible viewport.
     boxEl.style.left = '';
     boxEl.style.top = '';
     boxEl.style.zIndex = '';
@@ -931,9 +898,6 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
     return boxes.filter(function (b) { return boxDisplayName(b).toLowerCase() === lower; })[0] || null;
   }
 
-  // A small, deliberate surface so box code (e.g. an AI-agent box) can act on
-  // Kanvas itself. Boxes still run in their own isolated scope from each
-  // other, but any box can reach these shared actions via window.KanvasAPI.
   window.KanvasAPI = {
     addBox: function (code, name) {
       var offset = (boxes.length % 6) * 24;
@@ -1001,7 +965,6 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
     storageDelete: function (key) { return storageAdapter.delete('kanvas-ext-' + key); }
   };
 
-  // ---- Settings dropdown (hitta ruta / flytta till annan enhet) ----
   var settingsBtnEl = document.getElementById('settingsBtn');
   var settingsMenuEl = document.getElementById('settings-menu');
 
@@ -1061,7 +1024,6 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
     document.getElementById('transfer-overlay').style.display = 'flex';
   });
 
-  // ---- Debug console (Eruda) - off by default, toggled from settings ----
   var erudaScriptLoading = null;
   var erudaActive = false;
   var erudaInitialized = false;
@@ -1125,10 +1087,9 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
       if (pref && pref.value === 'true') {
         await enableEruda();
       }
-    } catch (e) { /* stays off by default */ }
+    } catch (e) {}
   })();
 
-  // ---- Move to another device (export/import everything Kanvas has stored) ----
   function utf8ToBase64(str) {
     var bytes = new TextEncoder().encode(str);
     var binary = '';
@@ -1231,207 +1192,14 @@ textarea:focus, button:focus-visible { outline: 2px solid #E8A33D; outline-offse
   document.getElementById('zoomLabel').addEventListener('click', function () { blurActive(); applyZoom(1); });
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(function () {
-      // Not available in this context (e.g. the sandboxed Claude preview) -
-      // harmless here, only matters once the file is actually hosted.
-    });
+    navigator.serviceWorker.register('sw.js').catch(function () {});
   }
 
   init();
 })();
 </script>
-  <script>
-(function () {
-  "use strict";
 
-  var STORAGE_KEY = 'home-chat';
-  var API_KEY = ;
-
-  var style = document.createElement('style');
-  style.textContent = `
-    #home-ai-btn {
-      position: fixed; left: 16px; bottom: 16px; z-index: 1200;
-      width: 52px; height: 52px; border-radius: 50%;
-      background: #E8A33D; border: none; color: #0F1720;
-      font-size: 22px; cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,0.4);
-      display: flex; align-items: center; justify-content: center;
-    }
-    #home-ai-btn:active { background: #C6842A; }
-    #home-ai-panel {
-      display: none; position: fixed; left: 0; right: 0; bottom: 0; z-index: 1250;
-      height: min(60vh, 520px); background: #16212B; border-top: 1px solid #2A3B47;
-      border-radius: 16px 16px 0 0; flex-direction: column;
-      box-shadow: 0 -4px 24px rgba(0,0,0,0.5);
-      font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #DCE6EC;
-      padding-bottom: env(safe-area-inset-bottom);
-    }
-    #home-ai-header {
-      display: flex; justify-content: space-between; align-items: center;
-      padding: 12px 14px; border-bottom: 1px solid #2A3B47; flex-shrink: 0;
-    }
-    #home-ai-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; }
-    #home-ai-close { background: none; border: none; color: #7C93A3; font-size: 20px; cursor: pointer; }
-    #home-ai-log { flex: 1; overflow-y: auto; padding: 10px 14px; -webkit-overflow-scrolling: touch; }
-    #home-ai-log div { margin-bottom: 8px; white-space: pre-wrap; word-break: break-word; }
-    #home-ai-row { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid #2A3B47; flex-shrink: 0; }
-    #home-ai-input {
-      flex: 1; background: #0F1720; color: #DCE6EC; border: 1px solid #2A3B47;
-      border-radius: 8px; padding: 10px; font-family: inherit; font-size: 13px;
-    }
-    #home-ai-send {
-      background: #E8A33D; color: #0F1720; border: none; border-radius: 8px;
-      padding: 10px 14px; font-weight: 600; cursor: pointer; font-family: 'Space Grotesk', sans-serif;
-    }
-  `;
-  document.head.appendChild(style);
-
-  var btn = document.createElement('button');
-  btn.id = 'home-ai-btn';
-  btn.setAttribute('aria-label', 'Öppna AI-chatt');
-  btn.textContent = '💬';
-  document.body.appendChild(btn);
-
-  var panel = document.createElement('div');
-  panel.id = 'home-ai-panel';
-  panel.innerHTML =
-    '<div id="home-ai-header"><span id="home-ai-title">AI-ASSISTENT</span><button id="home-ai-close" aria-label="Stäng">&times;</button></div>' +
-    '<div id="home-ai-log"></div>' +
-    '<div id="home-ai-row"><input id="home-ai-input" placeholder="Skriv ett kommando..."/><button id="home-ai-send">Skicka</button></div>';
-  document.body.appendChild(panel);
-
-  var log = panel.querySelector('#home-ai-log');
-  var input = panel.querySelector('#home-ai-input');
-  var sendBtn = panel.querySelector('#home-ai-send');
-
-  btn.addEventListener('click', function () { panel.style.display = 'flex'; input.focus(); });
-  panel.querySelector('#home-ai-close').addEventListener('click', function () { panel.style.display = 'none'; });
-
-  function addMsg(role, text) {
-    var m = document.createElement('div');
-    m.style.color = role === 'user' ? '#8FBC94' : (role === 'system' ? '#7C93A3' : '#DCE6EC');
-    m.textContent = (role === 'user' ? '> ' : '') + text;
-    log.appendChild(m);
-    log.scrollTop = log.scrollHeight;
-  }
-
-  function resolveId(idOrName) {
-    var list = window.KanvasAPI.listBoxes();
-    var byId = list.filter(function (b) { return b.id === idOrName; })[0];
-    if (byId) return byId.id;
-    var lower = String(idOrName).toLowerCase();
-    var byName = list.filter(function (b) { return b.name.toLowerCase() === lower; })[0];
-    return byName ? byName.id : idOrName;
-  }
-
-  var tools = [
-    { name: 'list_boxes', description: 'Lista alla rutor med id och namn.', input_schema: { type: 'object', properties: {} } },
-    { name: 'get_box_code', description: 'Hämta koden i en ruta.', input_schema: { type: 'object', properties: { idOrName: { type: 'string' } }, required: ['idOrName'] } },
-    { name: 'get_box_output', description: 'Hämta senaste utskrift/fel från en ruta.', input_schema: { type: 'object', properties: { idOrName: { type: 'string' } }, required: ['idOrName'] } },
-    { name: 'set_box_code', description: 'Skriv över koden i en befintlig ruta.', input_schema: { type: 'object', properties: { idOrName: { type: 'string' }, code: { type: 'string' } }, required: ['idOrName','code'] } },
-    { name: 'add_box', description: 'Skapa en ny ruta med kod och valfritt namn.', input_schema: { type: 'object', properties: { code: { type: 'string' }, name: { type: 'string' } }, required: ['code'] } },
-    { name: 'run_box', description: 'Kör koden i en ruta.', input_schema: { type: 'object', properties: { idOrName: { type: 'string' } }, required: ['idOrName'] } },
-    { name: 'delete_box', description: 'Ta bort en ruta.', input_schema: { type: 'object', properties: { idOrName: { type: 'string' } }, required: ['idOrName'] } },
-    { name: 'rename_box', description: 'Byt namn på en ruta.', input_schema: { type: 'object', properties: { idOrName: { type: 'string' }, newName: { type: 'string' } }, required: ['idOrName','newName'] } }
-  ];
-
-  function runTool(name, inp) {
-    try {
-      switch (name) {
-        case 'list_boxes': return { ok: true, boxes: window.KanvasAPI.listBoxes() };
-        case 'get_box_code': return { ok: true, code: window.KanvasAPI.getBoxCode(inp.idOrName) };
-        case 'get_box_output': {
-          var outEl = document.getElementById('output-' + resolveId(inp.idOrName));
-          return { ok: true, output: outEl ? outEl.innerText : null };
-        }
-        case 'set_box_code': return { ok: window.KanvasAPI.setBoxCode(inp.idOrName, inp.code) };
-        case 'add_box': return { ok: true, id: window.KanvasAPI.addBox(inp.code, inp.name) };
-        case 'run_box': return { ok: window.KanvasAPI.runBoxById(inp.idOrName) };
-        case 'delete_box': return { ok: window.KanvasAPI.deleteBoxById(inp.idOrName) };
-        case 'rename_box': return { ok: window.KanvasAPI.renameBox(inp.idOrName, inp.newName) };
-        default: return { ok: false, error: 'Okänt verktyg: ' + name };
-      }
-    } catch (e) { return { ok: false, error: e.message }; }
-  }
-
-  var messages = [];
-  var systemPrompt = "Du är en AI-assistent inbyggd i appen Kanvas, tillgänglig från en global chatt på hemskärmen (inte knuten till någon specifik ruta). Du styr appen via verktygen: skapa, läsa, ändra, köra, döpa om och ta bort rutor (boxes), samt läsa deras senaste output/fel. Varje ruta innehåller JS-kod som körs som en async-funktion med parametern 'el'. VIKTIGT - automatisk felrättning: när du skapar en ny ruta eller ändrar kod i en befintlig, ska du ALLTID direkt efter: 1) köra rutan, 2) läsa resultatet, 3) om det blev fel, rätta koden och upprepa, i upp till 4 försök, utan att fråga om lov mellan varje försök. Berätta bara för användaren när det är klart eller om du gett upp. Svara kort.";
-
-  function saveHistory() {
-    try { window.KanvasAPI.storageSet(STORAGE_KEY, JSON.stringify(messages.slice(-40))); } catch (e) {}
-  }
-
-  async function sendToClaude() {
-    var res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': API_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1500, system: systemPrompt, messages: messages, tools: tools })
-    });
-    return res.json();
-  }
-
-  async function handleTurn() {
-    var guard = 0;
-    while (guard++ < 10) {
-      var data = await sendToClaude();
-      if (!data || !data.content) { addMsg('system', 'Fel: kunde inte tolka svaret.'); return; }
-      var toolUses = [], textParts = [];
-      data.content.forEach(function (b) {
-        if (b.type === 'text') textParts.push(b.text);
-        if (b.type === 'tool_use') toolUses.push(b);
-      });
-      if (textParts.length) addMsg('ai', textParts.join('\n'));
-      messages.push({ role: 'assistant', content: data.content });
-      saveHistory();
-      if (toolUses.length === 0) return;
-      var toolResults = toolUses.map(function (tu) {
-        var result = runTool(tu.name, tu.input || {});
-        addMsg('system', '\u2192 ' + tu.name + '(' + JSON.stringify(tu.input) + ') = ' + JSON.stringify(result));
-        return { type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify(result) };
-      });
-      messages.push({ role: 'user', content: toolResults });
-      saveHistory();
-    }
-    addMsg('system', 'Avbröt efter för många steg.');
-  }
-
-  function send() {
-    var text = input.value.trim();
-    if (!text) return;
-    input.value = '';
-    addMsg('user', text);
-    messages.push({ role: 'user', content: text });
-    saveHistory();
-    sendBtn.disabled = true;
-    handleTurn().catch(function (e) { addMsg('system', 'Fel: ' + e.message); })
-      .then(function () { sendBtn.disabled = false; });
-  }
-
-  sendBtn.addEventListener('click', send);
-  input.addEventListener('keydown', function (e) { if (e.key === 'Enter') send(); });
-
-  window.KanvasAPI.storageGet(STORAGE_KEY).then(function (r) {
-    if (r && r.value) {
-      try {
-        messages = JSON.parse(r.value);
-        messages.forEach(function (m) {
-          if (m.role === 'user' && typeof m.content === 'string') addMsg('user', m.content);
-          if (m.role === 'assistant') {
-            var texts = (m.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; });
-            if (texts.length) addMsg('ai', texts.join('\n'));
-          }
-        });
-      } catch (e) {}
-    }
-  });
-})();
-</script>
-</body>
-  <script>
+<script>
 (function(){
 "use strict";
 var STORAGE_KEY='home-chat';
@@ -1619,3 +1387,5 @@ loadChat();
 </script>
 
 </html>
+
+```
